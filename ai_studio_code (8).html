@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lemon Deobfuscator</title>
+
+<style>
+:root{--bg:#1e1e1e;--fg:#d4d4d4;--primary:#007acc;--border:#333;}
+body{font-family:Segoe UI,Tahoma;background:var(--bg);color:var(--fg);margin:0;padding:20px}
+h1{text-align:center;color:#fff;margin-bottom:5px}
+p.subtitle{text-align:center;color:#888;margin:0 0 10px}
+.credit{text-align:center;color:#555;margin-bottom:20px}
+.container{display:flex;flex-direction:column;gap:15px;max-width:1400px;margin:0 auto}
+.panels{display:flex;gap:15px;height:70vh}
+.panel{flex:1;display:flex;flex-direction:column}
+textarea{flex:1;background:#252526;color:#d4d4d4;border:1px solid var(--border);padding:15px;font-family:Consolas;font-size:14px;border-radius:5px;resize:none; white-space: pre; overflow: auto;}
+button,input[type=file]{background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:5px;cursor:pointer; font-weight: bold;}
+.controls{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+</style>
+</head>
+
+<body>
+
+<h1>🍋 Lemon Deobfuscator</h1>
+<p class="subtitle">String Decryption, Math Eval & Advanced Lua Beautifier</p>
+<p class="credit">Credit: Mon</p>
+
+<div class="container">
+
+<div class="controls">
+<input type="file" id="fileInput">
+<button onclick="deobfuscate()">Deobfuscate</button>
+<button onclick="downloadFile()">Download Output</button>
+</div>
+
+<div class="panels">
+<div class="panel">
+<label>Input:</label>
+<textarea id="inputCode" spellcheck="false"></textarea>
+</div>
+<div class="panel">
+<label>Output:</label>
+<textarea id="outputCode" readonly spellcheck="false"></textarea>
+</div>
+</div>
+
+</div>
+
+<script>
+document.getElementById("fileInput").addEventListener("change",function(e){
+    let file=e.target.files[0]
+    if(!file)return
+    let reader=new FileReader()
+    reader.onload=function(ev){
+        document.getElementById("inputCode").value=ev.target.result
+    }
+    reader.readAsText(file)
+})
+
+function downloadFile(){
+    let text=document.getElementById("outputCode").value
+    if(!text)return
+    let blob=new Blob([text],{type:"text/plain"})
+    let a=document.createElement("a")
+    a.href=URL.createObjectURL(blob)
+    a.download="deobfuscated.lua"
+    a.click()
+}
+
+function parseLuaString(str){
+    return str.replace(/\\(\d{1,3})/g,(m,d)=>String.fromCharCode(parseInt(d)))
+}
+
+function escapeLuaString(str){
+    let out=""
+    for(let i=0;i<str.length;i++){
+        let c=str.charCodeAt(i)
+        if(c===34)out+='\\"'
+        else if(c===92)out+='\\\\'
+        else if(c===10)out+='\\n'
+        else if(c===13)out+='\\r'
+        else if(c===9)out+='\\t'
+        else if(c<32||c>126)out+='\\'+c
+        else out+=str[i]
+    }
+    return out
+}
+
+function decryptXOR(ct,key){
+    let r=""
+    for(let i=0;i<ct.length;i++){
+        let c=ct.charCodeAt(i)
+        let k=key.charCodeAt((i+1)%key.length)
+        r+=String.fromCharCode((c^k)%256)
+    }
+    return r
+}
+
+function simplifyMath(code) {
+    let changed = true;
+    let iters = 0;
+    
+    while (changed && iters < 500) {
+        changed = false;
+        iters++;
+        let old = code;
+
+        code = code.replace(/#"(.*?)"/g, (m, str) => {
+            let unescaped = str.replace(/\\(\d{1,3})/g, (_, d) => String.fromCharCode(parseInt(d)))
+                               .replace(/\\\\/g, '\\')
+                               .replace(/\\"/g, '"');
+            return unescaped.length.toString();
+        });
+        code = code.replace(/#'(.*?)'/g, (m, str) => {
+            let unescaped = str.replace(/\\(\d{1,3})/g, (_, d) => String.fromCharCode(parseInt(d)))
+                               .replace(/\\\\/g, '\\')
+                               .replace(/\\'/g, "'");
+            return unescaped.length.toString();
+        });
+
+        code = code.replace(/\(\s*function\(\)\s*return\s*([^;]*?)\s*;\s*end\s*\)\(\)/g, (m, p1) => {
+            let inner = p1.trim();
+            return inner === "" ? "nil" : inner;
+        });
+
+        const ev = (regex) => {
+            code = code.replace(regex, (m, prefix, a, op, b) => {
+                let numA = parseFloat(a);
+                let numB = parseFloat(b);
+                let res;
+                if(op === '+') res = numA + numB;
+                else if(op === '-') res = numA - numB;
+                else if(op === '*') res = numA * numB;
+                else if(op === '/') res = numA / numB;
+                else if(op === '%') res = numA % numB;
+                else if(op === '^') res = Math.pow(numA, numB);
+                
+                if (!isFinite(res) || isNaN(res)) return m;
+                return prefix + (res < 0 ? `(${res})` : res.toString());
+            });
+        };
+
+        ev(/(^|[^a-zA-Z_\.])(-?\b\d+(?:\.\d+)?)\s*(\^)\s*(-?\b\d+(?:\.\d+)?)(?![a-zA-Z_\.])/g);
+        ev(/(^|[^a-zA-Z_\.])(-?\b\d+(?:\.\d+)?)\s*([*\/%])\s*(-?\b\d+(?:\.\d+)?)(?![a-zA-Z_\.])/g);
+        ev(/(^|[^a-zA-Z_\.])(-?\b\d+(?:\.\d+)?)\s*([+-])\s*(-?\b\d+(?:\.\d+)?)(?![a-zA-Z_\.])/g);
+
+        code = code.replace(/\(\s*(\b\d+(?:\.\d+)?)\s*\)/g, (m, a) => a);
+
+        if (code !== old) changed = true;
+    }
+
+    return code;
+}
+
+function cleanLua(code){
+    code=code.replace(/--\[\[[\s\S]*?\]\]/g,'')
+    code=code.replace(/\[\[[\s\S]*?\]\]/g,'')
+    code=code.replace(/--.*$/gm,'')
+    return code
+}
+
+// ----------------------------------------------------
+// NEW FEATURE: Intelligent Lua Syntax Beautifier
+// ----------------------------------------------------
+function beautifyLua(code) {
+    // 1. Force visual line breaks around logical keywords
+    let c = code;
+    c = c.replace(/;/g, ';\n');
+    c = c.replace(/\b(then)\b/g, 'then\n');
+    c = c.replace(/\b(do)\b/g, 'do\n');
+    c = c.replace(/\b(else)\b/g, '\nelse\n');
+    c = c.replace(/\b(elseif)\b/g, '\nelseif ');
+    c = c.replace(/\b(end)\b/g, '\nend\n');
+    c = c.replace(/\b(repeat)\b/g, 'repeat\n');
+    c = c.replace(/\b(until)\b/g, '\nuntil ');
+    c = c.replace(/\{/g, '{\n');
+    c = c.replace(/\}/g, '\n}\n');
+    
+    // Cleanup spacing empty lines
+    c = c.replace(/\n\s*\n/g, '\n');
+
+    let lines = c.split('\n');
+    let out =[];
+    let indent = 0;
+
+    for (let line of lines) {
+        line = line.trim();
+        if (!line) continue;
+
+        // Strip text strings and comments out temporarily to accurately count brackets without false positives
+        let cleanLine = line.replace(/--.*/g, "")
+                            .replace(/"(?:\\"|[^"])*"/g, "")
+                            .replace(/'(?:\\'|[^'])*'/g, "");
+
+        // Determine how many scopes this line Opens and Closes
+        let opens = (cleanLine.match(/\b(function|do|then|repeat)\b/g) ||[]).length +
+                    (cleanLine.match(/\{/g) ||[]).length + 
+                    (cleanLine.match(/\(/g) ||[]).length;
+        
+        let closes = (cleanLine.match(/\b(end|until)\b/g) ||[]).length +
+                     (cleanLine.match(/\}/g) || []).length + 
+                     (cleanLine.match(/\)/g) ||[]).length;
+
+        // If the line *starts* with a closing tag, print it with shifted-back indentation 
+        let isCloseLine = /^(end|else|elseif|until|\}|\))/.test(cleanLine);
+        let isElseLike = /^(else|elseif)\b/.test(cleanLine);
+
+        let printIndent = indent;
+        if (isCloseLine) {
+            printIndent = Math.max(0, indent - 1);
+        }
+
+        // Output current line spacing based on the math above
+        out.push("    ".repeat(printIndent) + line);
+
+        // Calculate internal depth for the NEXT line 
+        if (isElseLike) {
+            indent = printIndent + 1; 
+        } else {
+            indent += (opens - closes);
+        }
+        
+        if (indent < 0) indent = 0;
+    }
+    return out.join('\n');
+}
+
+function deobfuscate(){
+    let code=document.getElementById("inputCode").value
+    if(!code.trim())return
+
+    code=code.replace(/(\w+)\("((?:[^"\\]|\\.)*)","((?:[^"\\]|\\.)*)"\)/g,
+    (m,f,c,k)=>{
+        let ct=parseLuaString(c)
+        let key=parseLuaString(k)
+        let d=decryptXOR(ct,key)
+        return '"'+escapeLuaString(d)+'"'
+    })
+
+    // 1. Math Evaluator
+    code=simplifyMath(code)
+    
+    // 2. Remove Junk Output Comments
+    code=cleanLua(code)
+    
+    // 3. Format/Indentation Engine
+    code=beautifyLua(code)
+
+    code="-- Ts file was make by Mon\n-- FOR luaobfuscator.com\n\n"+code.trim()
+
+    document.getElementById("outputCode").value=code
+}
+</script>
+
+</body>
+</html>
